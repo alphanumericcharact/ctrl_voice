@@ -11,7 +11,7 @@ import json
 from gtts import gTTS
 from googletrans import Translator
 
-def on_publish(client,userdata,result):             #create function for callback
+def on_publish(client,userdata,result):
     print("el dato ha sido publicado \n")
     pass
 
@@ -23,20 +23,15 @@ def on_message(client, userdata, message):
 
 broker="broker.mqttdashboard.com"
 port=1883
-client1= paho.Client("GIT-HUBC")
+
+client1= paho.Client("LKJUHASL")   # ✅ CAMBIO
 client1.on_message = on_message
-
-
 
 st.title("INTERFACES MULTIMODALES")
 st.subheader("CONTROL POR VOZ")
 
 image = Image.open('voice_ctrl.jpg')
-
 st.image(image, width=200)
-
-
-
 
 st.write("Toca el Botón y habla ")
 
@@ -77,7 +72,6 @@ if result:
         message =json.dumps({"Act1":result.get("GET_TEXT").strip()})
         ret= client1.publish("voice_ctrl", message)
 
-    
     try:
         os.mkdir("temp")
     except:
