@@ -1,66 +1,43 @@
-import os
 import streamlit as st
 from bokeh.models.widgets import Button
 from bokeh.models import CustomJS
 from streamlit_bokeh_events import streamlit_bokeh_events
-import time
-import glob
 import paho.mqtt.client as paho
 import json
-from gtts import gTTS
-from googletrans import Translator
 
-def on_publish(client,userdata,result):
-    print("el dato ha sido publicado \n")
+# Configuración MQTT Broker
+broker = "broker.mqttdashboard.com"
+port = 1883
+TOPIC_CONTROL = "proyecto/deshumidificador/control"
+
+def on_publish(client, userdata, result):
     pass
 
-def on_message(client, userdata, message):
-    global message_received
-    time.sleep(2)
-    message_received=str(message.payload.decode("utf-8"))
-    st.write("📩 Respuesta del sistema:", message_received)
+client1 = paho.Client("Streamlit_Voice_Ctrl")
+client1.on_publish = on_publish
 
-broker="broker.mqttdashboard.com"
-port=1883
-
-client1= paho.Client("LKJUHASL")
-client1.on_message = on_message
-
-# 🎯 NUEVA INTERFAZ
-
-st.title("🧠 Aplicación Didáctica de Interacción por Voz")
-
-st.subheader("🎙️ Control inteligente mediante comandos hablados")
+# Interfaz Web de Streamlit
+st.title("🌬️ Control por Voz - Deshumidificador IoT")
+st.subheader("🎙️ Módulo de interacción por comandos hablados")
 
 st.write("""
-Esta aplicación permite explorar la interacción entre humanos y sistemas digitales
-a través del reconocimiento de voz.
-
-El sistema captura comandos hablados en lenguaje natural y los envía a un dispositivo
-externo mediante el protocolo MQTT, permitiendo ejecutar acciones en tiempo real.
-
 ### 📌 Instrucciones de uso:
-1. Presiona el botón **Inicio**.
-2. Habla claramente uno de los comandos.
-3. Observa cómo el sistema interpreta y envía la instrucción.
+1. Presiona el botón **Iniciar reconocimiento**.
+2. Otorga permisos de micrófono al navegador si se solicitan.
+3. Habla claramente diciendo uno de los comandos válidos.
 
-### 🗣️ Ejemplos de comandos:
-- "enciende las luces"
-- "apaga las luces"
-- "abre la puerta"
-- "cierra la puerta"
+### 🗣️ Comandos Soportados:
+* *"Enciende el deshumidificador"* o *"Prende el deshumidificador"*
+* *"Apaga el deshumidificador"*
 """)
 
-st.info("💡 Asegúrate de permitir el acceso al micrófono en tu navegador.")
-
-st.write("### 🎤 Activar reconocimiento de voz")
-
+# Componente de reconocimiento de voz usando la API Web Speech del navegador
 stt_button = Button(label="▶️ Iniciar reconocimiento", width=250)
-
 stt_button.js_on_event("button_click", CustomJS(code="""
     var recognition = new webkitSpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'es-ES';
  
     recognition.onresult = function (e) {
         var value = "";
@@ -69,12 +46,12 @@ stt_button.js_on_event("button_click", CustomJS(code="""
                 value += e.results[i][0].transcript;
             }
         }
-        if ( value != "") {
+        if (value != "") {
             document.dispatchEvent(new CustomEvent("GET_TEXT", {detail: value}));
         }
     }
     recognition.start();
-    """))
+"""))
 
 result = streamlit_bokeh_events(
     stt_button,
@@ -85,21 +62,31 @@ result = streamlit_bokeh_events(
     debounce_time=0
 )
 
-# 📡 PROCESAMIENTO DEL TEXTO
+# Procesamiento del comando de voz y envío MQTT
+if result and "GET_TEXT" in result:
+    texto_reconocido = result.get("GET_TEXT")
+    st.success(f"🗣️ Texto reconocido: \"{texto_reconocido}\"")
+    
+    # Normalizar texto a minúsculas para análisis
+    texto_min = texto_reconocido.lower()
+    comando_detectado = None
 
-if result:
-    if "GET_TEXT" in result:
-        texto = result.get("GET_TEXT")
-        
-        st.success(f"🗣️ Comando reconocido: {texto}")
+    # Lógica de discriminación de comandos
+    if "enciende" in texto_min or "prende" in texto_min:
+        if "deshumidificador" in texto_min or "sistema" in texto_min:
+            comando_detectado = "ON"
+    elif "apaga" in texto_min or "detén" in texto_min:
+        if "deshumidificador" in texto_min or "sistema" in texto_min:
+            comando_detectado = "OFF"
 
-        client1.on_publish = on_publish                            
-        client1.connect(broker,port)  
-
-        message = json.dumps({"Act1": texto.strip()})
-        ret = client1.publish("voice_ctrl", message)
-
-    try:
-        os.mkdir("temp")
-    except:
-        pass
+    # Envío de carga útil al Broker si el comando es válido
+    if comando_detectado:
+        try:
+            client1.connect(broker, port)
+            payload = json.dumps({"relay": comando_detectado})
+            client1.publish(TOPIC_CONTROL, payload)
+            st.info(f"📡 MQTT Publicado $\rightarrow$ `{payload}` en el tópico `{TOPIC_CONTROL}`")
+        except Exception as e:
+            st.error(f"❌ Error de conexión MQTT: {e}")
+    else:
+        st.warning("⚠️ Comando no ejecutable. Asegúrate de incluir la palabra 'enciende' o 'apaga' junto a 'deshumidificador'.")
