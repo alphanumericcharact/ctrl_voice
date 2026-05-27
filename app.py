@@ -6,7 +6,7 @@ import paho.mqtt.client as paho
 import json
 
 # Configuración MQTT Broker
-broker = "broker.mqttdashboard.com"
+broker = "broker.emqx.io"
 port = 1883
 TOPIC_CONTROL = "proyecto/deshumidificador/control"
 
