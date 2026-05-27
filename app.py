@@ -6,17 +6,26 @@ import paho.mqtt.client as paho
 import json
 import random
 
-# Configuración WebSockets (Evita bloqueos de firewall en la web)
+# Configuración Estándar TCP (No requiere websocket-client)
 broker = "broker.emqx.io"
-port = 8083 # Puerto para WebSockets
+port = 1883
 TOPIC_CONTROL = "proyecto/deshumidificador/control"
 TOPIC_HUMEDAD = "proyecto/deshumidificador/humedad"
 
-# Variables de sesión
+# Variables de sesión para la interfaz
 if "humedad" not in st.session_state:
     st.session_state.humedad = "--"
+if "mqtt_status" not in st.session_state:
+    st.session_state.mqtt_status = "🟡 Conectando..."
 
-# Función de recepción de datos MQTT
+# Callbacks de MQTT
+def on_connect(client, userdata, flags, rc):
+    if rc == 0:
+        st.session_state.mqtt_status = "🟢 Conectado al Broker MQTT"
+        client.subscribe(TOPIC_HUMEDAD)
+    else:
+        st.session_state.mqtt_status = f"🔴 Error de conexión (Código: {rc})"
+
 def on_message(client, userdata, msg):
     try:
         if msg.topic == TOPIC_HUMEDAD:
@@ -24,20 +33,18 @@ def on_message(client, userdata, msg):
     except Exception as e:
         pass
 
-# Inicialización segura del cliente MQTT para Web
+# Inicialización del cliente MQTT
 @st.cache_resource
 def init_mqtt():
-    # ID aleatorio para evitar colisiones
     client_id = f"Streamlit_UI_{random.randint(1000, 9999)}"
-    # Transport=websockets es obligatorio para el puerto 8083
-    client = paho.Client(client_id, transport="websockets")
+    client = paho.Client(client_id)
+    client.on_connect = on_connect
     client.on_message = on_message
     try:
         client.connect(broker, port)
-        client.subscribe(TOPIC_HUMEDAD)
         client.loop_start() # Hilo en segundo plano
     except Exception as e:
-        st.error(f"Error de red: {e}")
+        st.session_state.mqtt_status = f"🔴 Fallo crítico de red: {e}"
     return client
 
 client1 = init_mqtt()
@@ -46,6 +53,9 @@ client1 = init_mqtt()
 
 st.title("🌬️ Control - Deshumidificador IoT")
 
+# Mostrar Estado de Conexión
+st.info(st.session_state.mqtt_status)
+
 st.subheader("📡 Monitoreo en Tiempo Real")
 col1, col2 = st.columns(2)
 with col1:
@@ -53,7 +63,6 @@ with col1:
 with col2:
     st.write("")
     st.write("")
-    # Este botón fuerza a Streamlit a redibujar la pantalla con el nuevo dato
     if st.button("🔄 Actualizar Lectura de Interfaz"):
         st.rerun()
 
@@ -62,7 +71,6 @@ st.markdown("---")
 st.subheader("🎙️ Control por Comandos Hablados")
 st.write("Comandos soportados: *'Enciende el deshumidificador'*, *'Apaga el deshumidificador'*")
 
-# Botón de Voz (JS)
 stt_button = Button(label="▶️ Iniciar reconocimiento", width=250)
 stt_button.js_on_event("button_click", CustomJS(code="""
     var recognition = new webkitSpeechRecognition();
@@ -93,7 +101,7 @@ result = streamlit_bokeh_events(
     debounce_time=0
 )
 
-# Procesamiento de Voz
+# Procesamiento de Voz a MQTT
 if result and "GET_TEXT" in result:
     texto_reconocido = result.get("GET_TEXT")
     st.success(f"🗣️ Texto reconocido: {texto_reconocido}")
