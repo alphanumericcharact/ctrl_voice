@@ -5,34 +5,56 @@ from streamlit_bokeh_events import streamlit_bokeh_events
 import paho.mqtt.client as paho
 import json
 
-# Configuración MQTT Broker
 broker = "broker.emqx.io"
 port = 1883
 TOPIC_CONTROL = "proyecto/deshumidificador/control"
+TOPIC_HUMEDAD = "proyecto/deshumidificador/humedad"
 
-def on_publish(client, userdata, result):
-    pass
+# Variables de sesion para almacenar datos en tiempo real
+if "humedad" not in st.session_state:
+    st.session_state.humedad = "--"
 
-client1 = paho.Client("Streamlit_Voice_Ctrl")
-client1.on_publish = on_publish
+# Funcion que se ejecuta al recibir un mensaje del ESP32
+def on_message(client, userdata, msg):
+    try:
+        if msg.topic == TOPIC_HUMEDAD:
+            st.session_state.humedad = msg.payload.decode()
+    except Exception as e:
+        print(f"Error procesando mensaje: {e}")
 
-# Interfaz Web de Streamlit
-st.title("🌬️ Control por Voz - Deshumidificador IoT")
-st.subheader("🎙️ Módulo de interacción por comandos hablados")
+# Configuracion del Cliente MQTT en Streamlit
+@st.cache_resource
+def init_mqtt():
+    client = paho.Client("Streamlit_Dashboard_UI")
+    client.on_message = on_message
+    try:
+        client.connect(broker, port)
+        client.subscribe(TOPIC_HUMEDAD)
+        client.loop_start() # Hilo en segundo plano para escuchar
+    except Exception as e:
+        st.error(f"Error conectando al broker MQTT: {e}")
+    return client
 
-st.write("""
-### 📌 Instrucciones de uso:
-1. Presiona el botón **Iniciar reconocimiento**.
-2. Otorga permisos de micrófono al navegador si se solicitan.
-3. Habla claramente diciendo uno de los comandos válidos.
+client1 = init_mqtt()
 
-### 🗣️ Comandos Soportados:
-* *"Enciende el deshumidificador"* o *"Prende el deshumidificador"*
-* *"Apaga el deshumidificador"*
-""")
+st.title("Control - Deshumidificador IoT")
 
-# Componente de reconocimiento de voz usando la API Web Speech del navegador
-stt_button = Button(label="▶️ Iniciar reconocimiento", width=250)
+# Panel de Monitoreo
+st.subheader("Monitoreo en Tiempo Real")
+col1, col2 = st.columns(2)
+with col1:
+    st.metric(label="Humedad Actual", value=f"{st.session_state.humedad} %")
+with col2:
+    if st.button("Actualizar Lectura de Interfaz"):
+        st.rerun()
+
+st.markdown("---")
+
+# Interfaz de Control por Voz
+st.subheader("Control por Comandos Hablados")
+st.write("Comandos soportados: 'Enciende el deshumidificador', 'Apaga el deshumidificador'")
+
+stt_button = Button(label="Iniciar reconocimiento", width=250)
 stt_button.js_on_event("button_click", CustomJS(code="""
     var recognition = new webkitSpeechRecognition();
     recognition.continuous = false;
@@ -62,16 +84,14 @@ result = streamlit_bokeh_events(
     debounce_time=0
 )
 
-# Procesamiento del comando de voz y envío MQTT
+# Procesamiento de Voz a MQTT
 if result and "GET_TEXT" in result:
     texto_reconocido = result.get("GET_TEXT")
-    st.success(f"🗣️ Texto reconocido: \"{texto_reconocido}\"")
+    st.success(f"Texto reconocido: {texto_reconocido}")
     
-    # Normalizar texto a minúsculas para análisis
     texto_min = texto_reconocido.lower()
     comando_detectado = None
 
-    # Lógica de discriminación de comandos
     if "enciende" in texto_min or "prende" in texto_min:
         if "deshumidificador" in texto_min or "sistema" in texto_min:
             comando_detectado = "ON"
@@ -79,14 +99,12 @@ if result and "GET_TEXT" in result:
         if "deshumidificador" in texto_min or "sistema" in texto_min:
             comando_detectado = "OFF"
 
-    # Envío de carga útil al Broker si el comando es válido
     if comando_detectado:
         try:
-            client1.connect(broker, port)
             payload = json.dumps({"relay": comando_detectado})
             client1.publish(TOPIC_CONTROL, payload)
-            st.info(f"📡 MQTT Publicado $\rightarrow$ `{payload}` en el tópico `{TOPIC_CONTROL}`")
+            st.info(f"MQTT Publicado: {payload}")
         except Exception as e:
-            st.error(f"❌ Error de conexión MQTT: {e}")
+            st.error(f"Error de conexion MQTT: {e}")
     else:
-        st.warning("⚠️ Comando no ejecutable. Asegúrate de incluir la palabra 'enciende' o 'apaga' junto a 'deshumidificador'.")
+        st.warning("Comando no ejecutable. Falta palabra clave.")
