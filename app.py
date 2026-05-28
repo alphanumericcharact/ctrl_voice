@@ -6,35 +6,35 @@ import paho.mqtt.client as paho
 import json
 import random
 
-# --- CONFIGURACIÓN ANTI-FIREWALL PARA STREAMLIT CLOUD ---
 broker = "broker.emqx.io"
-port = 8083 # Usamos puerto WebSocket para evitar bloqueos
+port = 8083 # Puerto WebSocket
 TOPIC_CONTROL = "proyecto/deshumidificador/control"
 TOPIC_HUMEDAD = "proyecto/deshumidificador/humedad"
 
-if "humedad" not in st.session_state:
-    st.session_state.humedad = "--"
-if "mqtt_status" not in st.session_state:
-    st.session_state.mqtt_status = "🟡 Conectando al servidor..."
+# 1. SOLUCIÓN: Diccionario global en caché. Evita el bloqueo de hilos de Streamlit.
+@st.cache_resource
+def get_estado():
+    return {"humedad": "--", "status": "🟡 Conectando al servidor..."}
+
+estado = get_estado()
 
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
-        st.session_state.mqtt_status = "🟢 Conectado al Broker MQTT"
+        estado["status"] = "🟢 Conectado al Broker MQTT"
         client.subscribe(TOPIC_HUMEDAD)
     else:
-        st.session_state.mqtt_status = f"🔴 Error de conexión (Código: {rc})"
+        estado["status"] = f"🔴 Error de conexión (Código: {rc})"
 
 def on_message(client, userdata, msg):
     try:
         if msg.topic == TOPIC_HUMEDAD:
-            st.session_state.humedad = msg.payload.decode()
-    except Exception as e:
+            estado["humedad"] = msg.payload.decode()
+    except Exception:
         pass
 
 @st.cache_resource
 def init_mqtt():
     client_id = f"Streamlit_UI_{random.randint(1000, 9999)}"
-    # EXTREMADAMENTE IMPORTANTE: transport="websockets"
     client = paho.Client(client_id, transport="websockets") 
     client.on_connect = on_connect
     client.on_message = on_message
@@ -42,7 +42,7 @@ def init_mqtt():
         client.connect(broker, port)
         client.loop_start() 
     except Exception as e:
-        st.session_state.mqtt_status = f"🔴 Fallo crítico de red: {e}"
+        estado["status"] = f"🔴 Fallo crítico de red: {e}"
     return client
 
 client1 = init_mqtt()
@@ -51,15 +51,17 @@ client1 = init_mqtt()
 
 st.title("🌬️ Control - Deshumidificador IoT")
 
-st.info(st.session_state.mqtt_status)
+# 2. Mostramos el estado leyendo el diccionario global
+st.info(estado["status"])
 
 st.subheader("📡 Monitoreo en Tiempo Real")
 col1, col2 = st.columns(2)
 with col1:
-    st.metric(label="Humedad Actual", value=f"{st.session_state.humedad} %")
+    st.metric(label="Humedad Actual", value=f"{estado['humedad']} %")
 with col2:
     st.write("")
     st.write("")
+    # IMPORTANTE: Este botón fuerza a la página a redibujarse para mostrar los nuevos datos
     if st.button("🔄 Actualizar Lectura de Interfaz"):
         st.rerun()
 
