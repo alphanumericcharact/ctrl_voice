@@ -6,19 +6,17 @@ import paho.mqtt.client as paho
 import json
 import random
 
-# Configuración Estándar TCP (No requiere websocket-client)
+# --- CONFIGURACIÓN ANTI-FIREWALL PARA STREAMLIT CLOUD ---
 broker = "broker.emqx.io"
-port = 1883
+port = 8083 # Usamos puerto WebSocket para evitar bloqueos
 TOPIC_CONTROL = "proyecto/deshumidificador/control"
 TOPIC_HUMEDAD = "proyecto/deshumidificador/humedad"
 
-# Variables de sesión para la interfaz
 if "humedad" not in st.session_state:
     st.session_state.humedad = "--"
 if "mqtt_status" not in st.session_state:
-    st.session_state.mqtt_status = "🟡 Conectando..."
+    st.session_state.mqtt_status = "🟡 Conectando al servidor..."
 
-# Callbacks de MQTT
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
         st.session_state.mqtt_status = "🟢 Conectado al Broker MQTT"
@@ -33,16 +31,16 @@ def on_message(client, userdata, msg):
     except Exception as e:
         pass
 
-# Inicialización del cliente MQTT
 @st.cache_resource
 def init_mqtt():
     client_id = f"Streamlit_UI_{random.randint(1000, 9999)}"
-    client = paho.Client(client_id)
+    # EXTREMADAMENTE IMPORTANTE: transport="websockets"
+    client = paho.Client(client_id, transport="websockets") 
     client.on_connect = on_connect
     client.on_message = on_message
     try:
         client.connect(broker, port)
-        client.loop_start() # Hilo en segundo plano
+        client.loop_start() 
     except Exception as e:
         st.session_state.mqtt_status = f"🔴 Fallo crítico de red: {e}"
     return client
@@ -53,7 +51,6 @@ client1 = init_mqtt()
 
 st.title("🌬️ Control - Deshumidificador IoT")
 
-# Mostrar Estado de Conexión
 st.info(st.session_state.mqtt_status)
 
 st.subheader("📡 Monitoreo en Tiempo Real")
@@ -101,7 +98,6 @@ result = streamlit_bokeh_events(
     debounce_time=0
 )
 
-# Procesamiento de Voz a MQTT
 if result and "GET_TEXT" in result:
     texto_reconocido = result.get("GET_TEXT")
     st.success(f"🗣️ Texto reconocido: {texto_reconocido}")
@@ -120,8 +116,8 @@ if result and "GET_TEXT" in result:
         try:
             payload = json.dumps({"relay": comando_detectado})
             client1.publish(TOPIC_CONTROL, payload)
-            st.info(f"📡 Comando enviado al simulador: {comando_detectado}")
+            st.info(f"📡 Comando enviado: {comando_detectado}")
         except Exception as e:
             st.error(f"❌ Error enviando comando: {e}")
     else:
-        st.warning("⚠️ Comando no válido. Debes decir 'Enciende el deshumidificador'.")
+        st.warning("⚠️ Comando no válido.")
