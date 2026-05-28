@@ -12,3 +12,4 @@ pillow >=7.1.0
 PyYAML >=3.10
 tornado >=5.1
 xyzservices >=2021.09.1
+websocket-client==1.7.0
